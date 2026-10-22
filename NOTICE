@@ -1,0 +1,20 @@
+dsh-onebot-qq (modified)
+
+This distribution contains a modified copy of dsh-onebot-qq 0.9.3,
+Copyright (c) 2026, dsh-external contributors, licensed under the
+BSD 3-Clause License (see LICENSE).
+
+Modifications (2026):
+
+  Modified: lib/tools.js     - removed ocr_image from the NapCat whitelist;
+                               added qq_send_sticker, qq_read_image (multi-frame),
+                               qq_read_video, and the memory tool group
+  Modified: lib/bridge.js    - injects the current mood/state line before each
+                               inbound message
+  Modified: lib/inbound.js   - remembers the latest inbound video path
+  Modified: lib/outbound.js  - [[NO_REPLY]] sentinel suppresses the send
+  Added:    lib/memory.js    - self state, notes and meme collection under
+                               <mediaDir>/whale-memory
+  Added:    lib/frames.js    - GIF/animated-WebP/video frame extraction via ffmpeg
+
+The original project lives at https://github.com/mario841859784/dsh-onebot
