@@ -31,9 +31,29 @@ cd dsh-qqbot-auto-whale
 .\install.ps1 -Profile qqbot -DryRun
 ```
 
-脚本会：检查 dsh → 确保插件已装（默认 `dsh-onebot-qq@0.9.3`）→ 校验版本 → 备份并覆盖 6 个文件 → 复制配置模板（不覆盖已有的）。
+脚本会：检查 dsh → 确保插件已装（默认 `dsh-onebot-qq@0.9.3`）→ 校验版本 → 备份并覆盖 7 个文件 → 复制配置模板（不覆盖已有的）。
 
 完整步骤（QQ NT、DSH、profile、NapCat、排错）见 **[docs/install.md](docs/install.md)**。
+
+## 一键启动
+
+装好之后，日常只双击一个文件：
+
+```
+launcher\start-all.cmd
+```
+
+它会依次做：检查 8643 → 没跑就启动 DSH 宿主（新开控制台看日志）→ 等端口就绪 → 没跑就启动 NapCat → 打印状态。
+
+配套三个：
+
+| 文件 | 作用 |
+|---|---|
+| `launcher\start-all.cmd` | 启动（已运行的会跳过，不重复开） |
+| `launcher\stop-all.cmd` | 停止宿主和 NapCat |
+| `launcher\status.cmd` | 看端口、进程、最近一次发送时间 |
+
+路径都在 [`launcher/config.psd1`](launcher/config.psd1) 里改（dsh 路径、profile、workspace、NapCat 启动器、key 文件），不填会自动找。
 
 ## 要求
 
@@ -56,15 +76,16 @@ cd dsh-qqbot-auto-whale
 .\uninstall.ps1 -Profile qqbot
 ```
 
-只还原那 6 个文件（用 `install.ps1` 留下的 `.bak-<时间戳>`），不动你的配置和数据。
+只还原那 7 个文件（用 `install.ps1` 留下的 `.bak-<时间戳>`），不动你的配置和数据。
 
 ## 这个仓库里有什么
 
 ```
-patch/lib/     改动的 6 个文件（4 改 2 新）
+patch/lib/     改动的 7 个文件（5 改 2 新）
 examples/      profile 配置模板（含鲸鱼娘人格）
 docs/          从零安装指南
-install.ps1    一键安装
+launcher/      一键启动 / 停止 / 状态
+install.ps1    安装补丁
 uninstall.ps1  还原
 CHANGES.md     逐文件改动说明
 NOTICE         上游署名与修改声明

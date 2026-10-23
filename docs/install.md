@@ -316,6 +316,26 @@ powershell -NoProfile -ExecutionPolicy Bypass -File D:\qqbot\start-qqbot.ps1
 参数：-NoProfile -ExecutionPolicy Bypass -File "D:\qqbot\start-qqbot.ps1"
 ```
 
+### 9.4 一键启动（仓库自带）
+
+仓库里的 `launcher\` 把「启动宿主 + 启动 NapCat」合成一次点击：
+
+```powershell
+launcher\start-all.cmd      # 双击即可；已运行的会跳过，不重复开
+launcher\stop-all.cmd       # 全停
+launcher\status.cmd         # 看端口/进程/最近发送
+```
+
+它会：检查 8643 → 没跑就启动宿主（新开控制台）→ 等端口就绪 → 没跑就启动 NapCat → 打印状态。
+路径在 `launcher\config.psd1` 里改，不填自动找。
+
+开机自启也可以直接指向这个 cmd：
+
+```
+程序：C:\path\to\dsh-qqbot-auto-whale\launcher\start-all.cmd
+参数：（留空）
+```
+
 ---
 
 ## 10. 安装并配置 NapCat
