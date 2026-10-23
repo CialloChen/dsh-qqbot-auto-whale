@@ -36,11 +36,20 @@
 6. `registerTools` 开头调用 `configureTools(mediaDir)`，并注册 memory 工具组。
 
 ### `lib/bridge.js`
-`prefixTurn()` 在用户消息前注入 `buildStatePrefix()` 的一行心境状态（位于
-`<user_message>` 边界外，视为机器人自身状态而非用户输入）。
+1. `prefixTurn()` 在用户消息前注入 `buildStatePrefix()` 的一行心境状态（位于
+   `<user_message>` 边界外，视为机器人自身状态而非用户输入）。
+2. 入站入口拦截戳一戳：调用 `normalizePokeNotice`，用 `get_group_member_info`
+   补昵称（1.5 秒超时兜底 QQ 号），再走正常入站管线。
 
 ### `lib/inbound.js`
-视频解析时记录 `settings.lastVideoPath`，供 `qq_read_video` 省略路径时回退。
+1. 视频解析时记录 `settings.lastVideoPath`，供 `qq_read_video` 省略路径时回退。
+2. 新增 `normalizePokeNotice(event, selfId)`：把指向机器人的戳一戳 notice 转成
+   `[戳一戳]` 合成消息。只处理目标是自己、且不是自己戳自己的情况；群里没有
+   `target_id` 的戳一戳一律忽略，避免误唤醒。
+
+### `lib/connection.js`
+把 `post_type === 'notice'` 的事件转给入站处理器（原实现直接丢弃 notice）。
+非戳一戳的 notice 仍会被 `normalizeOneBot11` 判空忽略。
 
 ### `lib/outbound.js`
 `[[NO_REPLY]]` 哨兵：模型输出恰好为该标记时不发送任何消息（返回空段列表）。

@@ -19,6 +19,58 @@ import { buildChatId, buildGroupMessagePrefix, classifyUserRole, dmAllowed, grou
 import { describeError } from './errors.js';
 import { currentTrace, TRACE_REASONS } from './trace.js';
 /**
+ * Reduce a "poke" (戳一戳) notice to the same neutral inbound shape used by
+ * chat messages, so the model can react to it. Only pokes that target the bot
+ * itself are converted; pokes between other members stay ignored. NapCat emits
+ * `notice_type: "notify"` + `sub_type: "poke"`, but a bare `notice_type:
+ * "poke"` is accepted too.
+ * @param event - raw OneBot 11 notice event.
+ * @param selfId - the bot's own QQ number.
+ * @returns the synthetic inbound, or null when it is not a self-directed poke.
+ */
+export function normalizePokeNotice(event, selfId) {
+    if (event.post_type !== 'notice')
+        return null;
+    const isPoke = event.notice_type === 'poke'
+        || (event.notice_type === 'notify' && event.sub_type === 'poke');
+    if (!isPoke)
+        return null;
+    const userId = String(event.user_id ?? '');
+    const self = String(selfId ?? '');
+    if (userId === '' || self === '')
+        return null;
+    if (userId === self)
+        return null;
+    const groupId = event.group_id === undefined || event.group_id === null ? '' : String(event.group_id);
+    const target = event.target_id === undefined || event.target_id === null ? '' : String(event.target_id);
+    if (target !== '') {
+        if (target !== self)
+            return null;
+    }
+    else if (groupId !== '') {
+        // Group poke without a target: cannot prove it was aimed at us.
+        return null;
+    }
+    const kind = groupId === '' ? 'private' : 'group';
+    const chatId = buildChatId(kind, kind === 'group' ? groupId : userId);
+    const seconds = Number(event.time);
+    const time = Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : Math.floor(Date.now() / 1000);
+    return {
+        kind,
+        userId,
+        groupId,
+        chatId,
+        segments: [],
+        raw: '[戳一戳]',
+        text: '[戳一戳]',
+        media: [],
+        replyId: undefined,
+        forwardId: undefined,
+        messageId: 'poke-' + userId + '-' + time,
+        nickname: '',
+    };
+}
+/**
  * Reduce one raw OneBot 11 event to the neutral inbound shape, or null when
  * the event is not a processable chat message (notice/recall, meta, unknown
  * message_type, or a missing sender id). Pure: no I/O, no state — the

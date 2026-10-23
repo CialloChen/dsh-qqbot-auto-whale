@@ -18,7 +18,7 @@ import { tryHandleCommand as routeCommand, STEER_ACCEPTED_NOTICE } from './comma
 import { relayHostCards as relayCards } from './card-relay.js';
 import { OutboundPipeline } from './outbound.js';
 import { ChatRegistry } from './registry.js';
-import { InboundPipeline, normalizeOneBot11 } from './inbound.js';
+import { InboundPipeline, normalizeOneBot11, normalizePokeNotice } from './inbound.js';
 import { InterimTracker } from './interim.js';
 import { DeferredDelivery } from './deferred.js';
 import { DEFAULT_DEFERRED_TIMEOUT_MS } from './deferred.js';
@@ -331,6 +331,15 @@ export class ChatBridge {
                     scope?.emit('inbound', { ok: false, reason: TRACE_REASONS.inboundStopping });
                     return;
                 }
+                // 戳一戳 is a notice event, not a message; convert self-directed
+                // pokes into a synthetic "[戳一戳]" message so the model can react.
+                const poke = normalizePokeNotice(event, this.deps.config.botQQ);
+                if (poke !== null) {
+                    poke.nickname = await this.pokeNickname(poke);
+                    this.deps.log('info', 'poke from ' + poke.chatId + ' (' + poke.nickname + ')');
+                    await this.processInbound(poke);
+                    return;
+                }
                 const inbound = normalizeOneBot11(event);
                 if (inbound === null) {
                     this.deps.log('debug', '非聊天消息事件，不处理（post_type=' + String(event.post_type) + '）');
@@ -347,6 +356,41 @@ export class ChatBridge {
         finally {
             session?.end();
         }
+    }
+    /**
+     * Resolve a display name for a poke's sender: prefer the notice payload,
+     * then one group-member lookup capped at 1.5s, then the QQ number. A poke
+     * must never stall the inbound pipeline on a slow NapCat.
+     */
+    async pokeNickname(poke) {
+        if (poke.nickname !== '')
+            return poke.nickname;
+        if (poke.kind !== 'group')
+            return poke.userId;
+        try {
+            const data = await Promise.race([
+                this.deps.connection.call('get_group_member_info', {
+                    group_id: Number(poke.groupId),
+                    user_id: Number(poke.userId),
+                    no_cache: false,
+                }),
+                new Promise((_resolve, reject) => {
+                    const timer = setTimeout(() => reject(new Error('poke nickname timeout')), 1500);
+                    if (typeof timer.unref === 'function')
+                        timer.unref();
+                }),
+            ]);
+            const card = typeof data?.card === 'string' ? data.card.trim() : '';
+            const nickname = typeof data?.nickname === 'string' ? data.nickname.trim() : '';
+            if (card !== '')
+                return card;
+            if (nickname !== '')
+                return nickname;
+        }
+        catch {
+            // Fall through to the QQ number.
+        }
+        return poke.userId;
     }
     /** W1: mint the inbound traceId + scope and record the first (收到消息)
      * event; undefined when tracing is off (zero overhead, zero difference).
