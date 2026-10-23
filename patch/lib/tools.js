@@ -130,11 +130,17 @@ async function uploadFrames(ctx, frameFiles) {
     return refs;
 }
 /** Convert one still into the frames-output shape. */
-async function singleFrameOutput(ctx, path, mediaType, name) {
+async function singleFrameOutput(ctx, path, name) {
     const attachments = ctx.get('attachments');
     if (attachments === undefined)
         throw new Error('附件服务不可用');
     const data = await readFile(path);
+    // Trust the bytes, not the file name: QQ stores PNG screenshots under a
+    // default `.jpg` name, and the attachment store rejects a declared type
+    // that does not match the payload (IMAGE_TYPE_MISMATCH).
+    const mediaType = detectImageMediaType(data);
+    if (mediaType === undefined)
+        throw new Error('qq_read_image: 不支持的图片格式（只支持 png/jpeg/webp/gif）');
     const ref = await attachments.saveImage({ data, mediaType, name });
     return {
         path,
@@ -244,6 +250,21 @@ function imageMediaTypeForPath(path) {
         default: return undefined;
     }
 }
+/** Sniff a still image's real media type from its magic bytes. */
+function detectImageMediaType(data) {
+    if (data.length >= 8 && data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4e && data[3] === 0x47)
+        return 'image/png';
+    if (data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff)
+        return 'image/jpeg';
+    if (data.length >= 6) {
+        const head = data.toString('latin1', 0, 6);
+        if (head === 'GIF87a' || head === 'GIF89a')
+            return 'image/gif';
+        if (data.toString('latin1', 0, 4) === 'RIFF' && data.toString('latin1', 8, 12) === 'WEBP')
+            return 'image/webp';
+    }
+    return undefined;
+}
 /**
  * Register all qq_* tools on the context. Registration is effect-based: the
  * returned disposer unregisters them.
@@ -311,7 +332,7 @@ export function registerTools(ctx, bridge, connection, limits) {
         parameters: {
             file_path: {
                 type: 'string',
-                description: '图片绝对路径，必须在 media 目录（<DSH_HOME>/media/onebot）下；省略时读取当前会话最近一张入站图',
+                description: '图片绝对路径，必须在 C:\\Users\\umdersweetbox\\.dsh\\media\\onebot 下；省略时读取当前会话最近一张入站图',
             },
         },
         output: framesOutput(),
@@ -359,10 +380,7 @@ export function registerTools(ctx, bridge, connection, limits) {
                     // single-image path below; a static first frame still helps.
                 }
             }
-            const mediaType = imageMediaTypeForPath(target);
-            if (mediaType === undefined)
-                throw new Error('qq_read_image: 不支持的图片格式');
-            return await singleFrameOutput(ctx, target, mediaType, basename(target));
+            return await singleFrameOutput(ctx, target, basename(target));
         },
     }));
     register(defineTool({

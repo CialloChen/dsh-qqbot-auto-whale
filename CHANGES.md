@@ -34,6 +34,9 @@
 4. 新增 `qq_read_video`：从 `[视频:...]` 路径抽 2-6 帧。
 5. 动图/视频共用限流：每会话每 45 秒最多一次（动图与视频分开计数）。
 6. `registerTools` 开头调用 `configureTools(mediaDir)`，并注册 memory 工具组。
+7. 静态图片按**文件头**判定 mediaType（PNG/JPEG/GIF/WebP），不再用扩展名。
+   QQ 会把截图存成 `.jpg` 但内容是 PNG，附件服务校验类型与字节不一致时会抛
+   `IMAGE_TYPE_MISMATCH`，表现为「读不了这张图」。
 
 ### `lib/bridge.js`
 1. `prefixTurn()` 在用户消息前注入 `buildStatePrefix()` 的一行心境状态（位于
