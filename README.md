@@ -45,7 +45,21 @@ cd dsh-qqbot-auto-whale
 launcher\start-all.cmd
 ```
 
-它会依次做：检查 8643 → 没跑就启动 DSH 宿主（新开控制台看日志）→ 等端口就绪 → 没跑就启动 NapCat → 打印状态。
+它会依次做：检查 8643 → 没跑就启动 DSH 宿主（新开控制台看日志）→ 等端口就绪 → 没跑就启动 NapCat → 等 WebUI 6099 → **等 DSH 侧出现 Established 连接** → 打印状态。
+
+NapCat 起不来时自动重试一次，并把它的控制台输出写到 `launcher\napcat-<时间>.log`；失败会直接打印日志末尾。
+
+常见情况：你自己的主 QQ 开着时，NapCat 可能因为共用 `%APPDATA%\QQ` 起不来。这时加 `-KillQQ`：
+
+```powershell
+launcher\start-all.cmd -KillQQ
+```
+
+它会先关掉所有 QQ（包括主 QQ）再启动 NapCat。做不到就重启一次：
+
+```powershell
+launcher\start-all.cmd -Restart
+```
 
 配套三个：
 

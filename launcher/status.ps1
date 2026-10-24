@@ -33,6 +33,8 @@ else {
 }
 
 $webui = Get-NetTCPConnection -LocalPort $napCatWebUiPort -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+$napCatProcs = @(Get-CimInstance Win32_Process -Filter "Name='QQ.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $null -ne $_.CommandLine -and $_.CommandLine -like '*NapCat*' })
 if ($null -ne $webui) {
     Ok 'NapCat 运行中'
     Row 'WebUI' ('http://127.0.0.1:' + $napCatWebUiPort + '/webui')
@@ -40,9 +42,14 @@ if ($null -ne $webui) {
 else {
     Note 'NapCat 未运行'
 }
+Row 'NapCat进程' ($napCatProcs.Count.ToString() + ' 个')
 
-$qq = Get-Process -Name QQ -ErrorAction SilentlyContinue
-Row 'QQ 进程' $(if ($null -ne $qq) { ($qq | Measure-Object).Count.ToString() + ' 个' } else { '无' })
+$mainQq = @(Get-CimInstance Win32_Process -Filter "Name='QQ.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $null -eq $_.CommandLine -or $_.CommandLine -notlike '*NapCat*' })
+Row '主QQ进程' ($mainQq.Count.ToString() + ' 个')
+
+$channel = Get-NetTCPConnection -LocalPort $dshPort -State Established -ErrorAction SilentlyContinue
+if ($null -ne $channel) { Row '通道' '已连接（Established）' } else { Row '通道' '未连接' }
 
 $actions = Join-Path $dshHome 'media\onebot\qq-actions.log'
 if (Test-Path -LiteralPath $actions) {
