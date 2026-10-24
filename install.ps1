@@ -58,7 +58,7 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = $PSScriptRoot
 $patchDir = Join-Path $repoRoot 'patch\lib'
 $exampleConfig = Join-Path $repoRoot 'examples\cordis.patch.example.yml'
-$patchedFiles = @('tools.js', 'bridge.js', 'inbound.js', 'outbound.js', 'connection.js', 'memory.js', 'frames.js')
+$patchedFiles = @('tools.js', 'bridge.js', 'inbound.js', 'outbound.js', 'connection.js', 'index.js', 'memory.js', 'frames.js')
 
 function Step([string]$Message) { Write-Host ("» " + $Message) -ForegroundColor Cyan }
 function Ok([string]$Message) { Write-Host ("  [ok] " + $Message) -ForegroundColor Green }

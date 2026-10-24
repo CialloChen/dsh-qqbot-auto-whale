@@ -27,6 +27,18 @@ export const DEFAULT_ACTION_RATE_PER_MINUTE = 20;
 export const DEFAULT_ACTION_RATE_PER_DAY = 500;
 /** W2-③: proactive-write audit file name, appended under mediaDir (jsonl). */
 export const ACTION_AUDIT_FILE = 'qq-actions.log';
+/** Marker the model uses to send several separate messages in one turn. */
+export const SPLIT_MARKER = '[[SPLIT]]';
+/** Split a reply into separate messages; a marker-free reply stays one part. */
+export function splitReplyParts(text) {
+    if (!text.includes(SPLIT_MARKER))
+        return [text];
+    return text
+        .split(SPLIT_MARKER)
+        .map((part) => part.trim())
+        .filter((part) => part !== '');
+}
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 /**
  * The outbound pipeline. Owns the B6 pendingSends state; the bridge keeps
  * same-name delegating facades and wires the reconnect drain trigger.
@@ -48,7 +60,9 @@ export class OutboundPipeline {
     }
     /**
      * Send plain text to a chat with the full outbound pipeline (forward
-     * blocks, Markdown strip, sentence splitting).
+     * blocks, Markdown strip, sentence splitting). A reply containing the
+     * [[SPLIT]] marker is sent as several separate messages with a short
+     * pause between them, so the bot can "连发" instead of one wall of text.
      * @param chatId - target chat.
      * @param text - model-produced text.
      * @param options - optional reply target.
@@ -73,66 +87,81 @@ export class OutboundPipeline {
                 this.ctx.trace?.(chatId, { stage: 'outbound', ok: false, reason: TRACE_REASONS.outboundNotConnected });
                 throw new OneBotNotConnectedError();
             }
-            const hits = scanSensitive(text, this.ctx.config.sensitivePatterns);
-            if (hits.length > 0) {
-                this.ctx.log('warn', 'sensitive outbound audit for ' + chatId + ': ' + hits.join(', '));
-                this.ctx.trace?.(chatId, { stage: 'outbound', ok: true, reason: TRACE_REASONS.outboundSensitive, data: { hits: hits.slice(0, 5) } });
+            const parts = splitReplyParts(noReplyText);
+            if (parts.length <= 1) {
+                return await this.sendOne(chatId, noReplyText, options);
             }
             const ids = [];
-            const { body, nodes } = extractForwardBlocks(text, '助手');
-            if (nodes.length > 0) {
-                // Passive reply path: [[qq_forward]] blocks inside a turn reply are
-                // NOT gated as proactive writes (see the W2-③ 口径 note).
-                await this.sendForwardNodes(chatId, nodes);
-                ids.push('forward');
+            for (let index = 0; index < parts.length; index += 1) {
+                if (index > 0) {
+                    await sleep(350 + Math.floor(Math.random() * 350));
+                }
+                ids.push(...await this.sendOne(chatId, parts[index], options));
             }
-            let sentCard = false;
-            const threshold = this.ctx.config.textImageThreshold;
-            if (threshold > 0 && body.length > threshold) {
-                try {
-                    const chat = this.ctx.getChat(chatId);
-                    const title = chat !== undefined && chat.lastNickname !== ''
-                        ? 'To ' + chat.lastNickname
-                        : undefined;
-                    const png = renderTextImage(body, {
-                        title,
-                        footerBrand: this.ctx.config.cardFooter,
-                        fontFiles: this.ctx.config.fontFiles,
-                        fontFamilies: this.ctx.config.fontFamilies,
-                    });
-                    const b64 = 'base64://' + png.toString('base64');
-                    if (b64.length <= this.ctx.config.maxImageBytes) {
-                        const id = await this.sendMsg(chatId, [{ type: 'image', data: { file: b64 } }], options);
-                        if (id !== undefined)
-                            ids.push(id);
-                        sentCard = true;
-                    }
-                    else {
-                        this.ctx.log('warn', 't2i card PNG exceeds maxImageBytes; falling back to text');
-                        this.ctx.trace?.(chatId, { stage: 'outbound', ok: false, reason: TRACE_REASONS.outboundCardTooLarge });
-                    }
-                }
-                catch (error) {
-                    this.ctx.log('warn', 't2i render failed, falling back to text: ' + describeError(error));
-                    this.ctx.trace?.(chatId, { stage: 'outbound', ok: false, reason: '文字图卡片渲染失败，已降级为文本: ' + describeError(error) });
-                }
-            }
-            if (!sentCard) {
-                const plain = stripMarkdown(body);
-                if (plain !== '') {
-                    const id = await this.sendMsg(chatId, [{ type: 'text', data: { text: plain } }], options);
-                    if (id !== undefined)
-                        ids.push(id);
-                }
-                else {
-                    // pipeline-hooks.md #30: the empty-body skip used to be silent.
-                    this.ctx.log('debug', '正文为空，未发送: ' + chatId);
-                    this.ctx.trace?.(chatId, { stage: 'outbound', ok: false, reason: TRACE_REASONS.outboundEmptyText });
-                }
-            }
-            this.ctx.trace?.(chatId, { stage: 'outbound', ok: true, reason: '回复已发送', data: { segments: ids.length } });
             return ids;
         });
+    }
+    /** One payload through the outbound pipeline (forward blocks, t2i, text). */
+    async sendOne(chatId, text, options) {
+        const hits = scanSensitive(text, this.ctx.config.sensitivePatterns);
+        if (hits.length > 0) {
+            this.ctx.log('warn', 'sensitive outbound audit for ' + chatId + ': ' + hits.join(', '));
+            this.ctx.trace?.(chatId, { stage: 'outbound', ok: true, reason: TRACE_REASONS.outboundSensitive, data: { hits: hits.slice(0, 5) } });
+        }
+        const ids = [];
+        const { body, nodes } = extractForwardBlocks(text, '助手');
+        if (nodes.length > 0) {
+            // Passive reply path: [[qq_forward]] blocks inside a turn reply are
+            // NOT gated as proactive writes (see the W2-③ 口径 note).
+            await this.sendForwardNodes(chatId, nodes);
+            ids.push('forward');
+        }
+        let sentCard = false;
+        const threshold = this.ctx.config.textImageThreshold;
+        if (threshold > 0 && body.length > threshold) {
+            try {
+                const chat = this.ctx.getChat(chatId);
+                const title = chat !== undefined && chat.lastNickname !== ''
+                    ? 'To ' + chat.lastNickname
+                    : undefined;
+                const png = renderTextImage(body, {
+                    title,
+                    footerBrand: this.ctx.config.cardFooter,
+                    fontFiles: this.ctx.config.fontFiles,
+                    fontFamilies: this.ctx.config.fontFamilies,
+                });
+                const b64 = 'base64://' + png.toString('base64');
+                if (b64.length <= this.ctx.config.maxImageBytes) {
+                    const id = await this.sendMsg(chatId, [{ type: 'image', data: { file: b64 } }], options);
+                    if (id !== undefined)
+                        ids.push(id);
+                    sentCard = true;
+                }
+                else {
+                    this.ctx.log('warn', 't2i card PNG exceeds maxImageBytes; falling back to text');
+                    this.ctx.trace?.(chatId, { stage: 'outbound', ok: false, reason: TRACE_REASONS.outboundCardTooLarge });
+                }
+            }
+            catch (error) {
+                this.ctx.log('warn', 't2i render failed, falling back to text: ' + describeError(error));
+                this.ctx.trace?.(chatId, { stage: 'outbound', ok: false, reason: '文字图卡片渲染失败，已降级为文本: ' + describeError(error) });
+            }
+        }
+        if (!sentCard) {
+            const plain = stripMarkdown(body);
+            if (plain !== '') {
+                const id = await this.sendMsg(chatId, [{ type: 'text', data: { text: plain } }], options);
+                if (id !== undefined)
+                    ids.push(id);
+            }
+            else {
+                // pipeline-hooks.md #30: the empty-body skip used to be silent.
+                this.ctx.log('debug', '正文为空，未发送: ' + chatId);
+                this.ctx.trace?.(chatId, { stage: 'outbound', ok: false, reason: TRACE_REASONS.outboundEmptyText });
+            }
+        }
+        this.ctx.trace?.(chatId, { stage: 'outbound', ok: true, reason: '回复已发送', data: { segments: ids.length } });
+        return ids;
     }
     /** Park one queuable send for a chat while disconnected (M1-B6):
      * per-chat FIFO, capped — the oldest entry is dropped beyond the cap. */

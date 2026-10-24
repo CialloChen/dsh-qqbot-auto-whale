@@ -43,6 +43,20 @@
    `<user_message>` 边界外，视为机器人自身状态而非用户输入）。
 2. 入站入口拦截戳一戳：调用 `normalizePokeNotice`，用 `get_group_member_info`
    补昵称（1.5 秒超时兜底 QQ 号），再走正常入站管线。
+3. 主动发言：`startProactive()` 按 `proactiveIntervalMinutes` 起定时器，
+   `maybeProactive()` 检查空闲时长、静默时段、每日上限后，向
+   `proactiveChats` 里的会话注入 `PROACTIVE_NUDGE`（【主动】系统提醒）并走正常回合。
+   消息仍受 `[[NO_REPLY]]` 控制，模型不想说就不发。
+
+### `lib/outbound.js`
+1. `[[NO_REPLY]]` 哨兵：模型输出恰好为该标记时不发送任何消息（返回空段列表）。
+2. `[[SPLIT]]` 连发：一条回复里用该标记分隔，会拆成多条消息依次发送
+   （每条之间 350-700ms 随机停顿）；没有标记时行为不变。
+
+### `lib/index.js`
+新增配置项：`proactiveEnabled`、`proactiveChats`、`proactiveMinIdleMinutes`、
+`proactiveIntervalMinutes`、`proactiveMaxPerDay`、`proactiveQuietStartHour`、
+`proactiveQuietEndHour`，并把它们透传给 bridge 的 `deps.config`。
 
 ### `lib/inbound.js`
 1. 视频解析时记录 `settings.lastVideoPath`，供 `qq_read_video` 省略路径时回退。
@@ -53,9 +67,6 @@
 ### `lib/connection.js`
 把 `post_type === 'notice'` 的事件转给入站处理器（原实现直接丢弃 notice）。
 非戳一戳的 notice 仍会被 `normalizeOneBot11` 判空忽略。
-
-### `lib/outbound.js`
-`[[NO_REPLY]]` 哨兵：模型输出恰好为该标记时不发送任何消息（返回空段列表）。
 
 ## 配置（不属于插件代码）
 `cordis.patch.example.yml` 里的 persona、rate limit、preset 均为配置层改动，

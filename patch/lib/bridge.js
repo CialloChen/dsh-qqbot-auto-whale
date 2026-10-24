@@ -32,6 +32,8 @@ import { FailureRefRegistry, failureRefSuffix } from './ref.js';
  * turn (the flag resets at turn/end) so a burst of queued messages never
  * spams the chat. Exported for the deterministic text wait in tests. */
 export const QUEUE_NOTICE_TEXT = '⏳ 当前任务运行中，新消息已排队，将在当前任务结束后依次处理。';
+/** 主动发言的合成提示：明确告诉模型这是系统提醒，不是对方的消息。 */
+export const PROACTIVE_NUDGE = '【主动】这是一条系统提醒，不是对方发来的消息。你已经有一阵没和对方说话了，可以主动开口说一句：分享个刚想到的小事、问一句在干嘛、或者单纯说想他了。自然、短，不要客服腔，不要解释这条提醒。不想说就回 [[NO_REPLY]]。';
 /**
  * Bridge between OneBot events and dsh agents. Create via the constructor and
  * call start() from the plugin's effect; call stop() on disposal.
@@ -83,6 +85,9 @@ export class ChatBridge {
     /** Plugin version + git commit, read once for /ver. */
     pluginVersion;
     pluginCommit;
+    /** 主动发言：定时器 + 每会话当日计数（重启清零）。 */
+    proactiveTimer;
+    proactiveCounts = new Map();
     stopping = false;
     constructor(deps) {
         this.deps = deps;
@@ -205,6 +210,73 @@ export class ChatBridge {
                 return;
             this.deps.log('info', 'bridge ready (' + this.registry.chats.size + ' resumed chat(s))');
         });
+        this.startProactive();
+    }
+    /** 主动发言：按配置的间隔检查空闲会话，够久没说话就让模型自己开口。 */
+    startProactive() {
+        if (this.deps.config.proactiveEnabled !== true)
+            return;
+        const chats = this.deps.config.proactiveChats ?? [];
+        if (chats.length === 0)
+            return;
+        const minutes = Math.max(1, this.deps.config.proactiveIntervalMinutes ?? 30);
+        this.proactiveTimer = setInterval(() => {
+            void this.maybeProactive();
+        }, minutes * 60_000);
+        if (typeof this.proactiveTimer.unref === 'function')
+            this.proactiveTimer.unref();
+        this.deps.log('info', 'proactive enabled: ' + chats.join(', ') + ' every ' + minutes + 'min');
+    }
+    /** One idle check across the configured chats (never throws). */
+    async maybeProactive() {
+        if (this.stopping || this.deps.config.proactiveEnabled !== true)
+            return;
+        const chats = this.deps.config.proactiveChats ?? [];
+        if (chats.length === 0)
+            return;
+        const hour = new Date().getHours();
+        const quietStart = this.deps.config.proactiveQuietStartHour ?? 0;
+        const quietEnd = this.deps.config.proactiveQuietEndHour ?? 8;
+        if (quietStart !== quietEnd) {
+            const quiet = quietStart < quietEnd
+                ? hour >= quietStart && hour < quietEnd
+                : hour >= quietStart || hour < quietEnd;
+            if (quiet)
+                return;
+        }
+        if (!this.deps.connection.connected)
+            return;
+        const minIdleMs = Math.max(1, this.deps.config.proactiveMinIdleMinutes ?? 180) * 60_000;
+        const maxPerDay = Math.max(1, this.deps.config.proactiveMaxPerDay ?? 2);
+        const today = new Date().toISOString().slice(0, 10);
+        for (const chatId of chats) {
+            let chat = this.chats.get(chatId);
+            if (chat === undefined) {
+                try {
+                    chat = await this.ensureChat(chatId, '');
+                }
+                catch (error) {
+                    this.deps.log('debug', 'proactive ensureChat failed for ' + chatId + ': ' + describeError(error));
+                    continue;
+                }
+                if (chat.lastActivityAt === undefined)
+                    chat.lastActivityAt = Date.now();
+            }
+            if (Date.now() - (chat.lastActivityAt ?? 0) < minIdleMs)
+                continue;
+            const counter = this.proactiveCounts.get(chatId);
+            const usedToday = counter !== undefined && counter.day === today ? counter.count : 0;
+            if (usedToday >= maxPerDay)
+                continue;
+            this.proactiveCounts.set(chatId, { day: today, count: usedToday + 1 });
+            this.deps.log('info', 'proactive turn -> ' + chatId + ' (' + (usedToday + 1) + '/' + maxPerDay + ' today)');
+            try {
+                await this.dispatchFollowup(chatId, PROACTIVE_NUDGE, 'member', '');
+            }
+            catch (error) {
+                this.deps.log('warn', 'proactive dispatch failed: ' + describeError(error));
+            }
+        }
     }
     /** Stop everything: dispose agents, save mapping, cancel timers. */
     async stop() {
@@ -221,6 +293,10 @@ export class ChatBridge {
         // T3 (P2): disarm the deferred silent-wait timers（pending 条目已落盘，
         // 重启后 loadPersisted 恢复跟踪续投）。
         this.deferred.stopAll();
+        if (this.proactiveTimer !== undefined) {
+            clearInterval(this.proactiveTimer);
+            this.proactiveTimer = undefined;
+        }
     }
     /** Map an agent session id back to its chat (for model tools). */
     chatForSession(sessionId) {

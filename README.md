@@ -15,6 +15,8 @@
 | 私人记忆 | `qq_state_update` / `qq_memory_write` / `qq_memory_read`，只写 `whale-memory` |
 | 表情包收藏 | `qq_save_meme` / `qq_meme_list`，配 `qq_send_sticker` 的 `whale` 包 |
 | 戳一戳 | 识别指向机器人的 poke，合成 `[戳一戳]` 交给模型回应 |
+| 连发 | 回复里用 `[[SPLIT]]` 分隔，会拆成多条消息依次发出 |
+| 主动发言 | 空闲够久时模型自己开口（默认只开私聊，带静默时段和每日上限） |
 | 静默 | `[[NO_REPLY]]` 哨兵，模型不想说话时完全不发消息 |
 
 ## 快速安装

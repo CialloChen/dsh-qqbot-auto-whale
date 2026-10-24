@@ -23,7 +23,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$patchedFiles = @('tools.js', 'bridge.js', 'inbound.js', 'outbound.js', 'connection.js', 'memory.js', 'frames.js')
+$patchedFiles = @('tools.js', 'bridge.js', 'inbound.js', 'outbound.js', 'connection.js', 'index.js', 'memory.js', 'frames.js')
 
 function Step([string]$Message) { Write-Host ("» " + $Message) -ForegroundColor Cyan }
 function Ok([string]$Message) { Write-Host ("  [ok] " + $Message) -ForegroundColor Green }

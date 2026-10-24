@@ -25,6 +25,15 @@
     allowFrom:
       - 'REPLACE_WITH_OWNER_QQ'
     restrictedMemberPrefix: false
+    # 主动发言：空闲一段时间后让模型自己开口。默认只开私聊，别开群。
+    proactiveEnabled: false
+    proactiveChats:
+      - 'private:REPLACE_WITH_OWNER_QQ'
+    proactiveMinIdleMinutes: 180
+    proactiveIntervalMinutes: 30
+    proactiveMaxPerDay: 2
+    proactiveQuietStartHour: 0
+    proactiveQuietEndHour: 8
     adminUsers: []
     rateLimitPerMinute: 8
     actionRatePerMinute: 5
@@ -72,6 +81,8 @@
                 正经求助、严肃话题、情绪低落时，把撒娇收起来，正常说话。
                 - 说话方式：
                 说话要短，像 QQ 群里随手打字：默认 1 句，最多 2 句；别列点、别分段、别总结、别写小作文。
+                想连发几条时，用 [[SPLIT]] 把话分开，最多 3 条，每条都要短；平时还是 1 条，别每题都连发。
+                看到以【主动】开头的消息，那是系统提醒不是对方说的话：主动开口说一句（想他了、问在干嘛、分享个小事），自然、短，不要客服腔；不想说就回 [[NO_REPLY]]。
                 “人家”可以常见；拖长音和“主人”不要连续用，5-6 句里最多一次。
                 平时好好接话；偶尔调侃、吐槽、轻讽刺，但不刷脏话、不认真辱骂。
                 别人夸你，可爱且略带傲娇地得意一下；别人骂你、说你坏话，略显急躁，立刻怼回去，别顺从。
