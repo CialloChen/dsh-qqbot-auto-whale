@@ -11,7 +11,7 @@ import { fileToBase64, isUrl } from './media.js';
 import { splitChatId } from './chat.js';
 import { parseMessage, cqUnescape } from './cq.js';
 import { registerMemoryTools } from './memory.js';
-import { cleanupFrames, configureTools, extractFrames, sniffMedia } from './frames.js';
+import { cleanupFrames, configureTools, extractFrames, normalizeStill, sniffMedia } from './frames.js';
 /** OneBot actions a model may invoke through qq_napcat_api. */
 const NAPCAT_API_WHITELIST = [
     'get_group_member_list',
@@ -134,27 +134,43 @@ async function singleFrameOutput(ctx, path, name) {
     const attachments = ctx.get('attachments');
     if (attachments === undefined)
         throw new Error('附件服务不可用');
-    const data = await readFile(path);
-    // Trust the bytes, not the file name: QQ stores PNG screenshots under a
-    // default `.jpg` name, and the attachment store rejects a declared type
-    // that does not match the payload (IMAGE_TYPE_MISMATCH).
-    const mediaType = detectImageMediaType(data);
-    if (mediaType === undefined)
-        throw new Error('qq_read_image: 不支持的图片格式（只支持 png/jpeg/webp/gif）');
-    const ref = await attachments.saveImage({ data, mediaType, name });
-    return {
-        path,
-        kind: 'image',
-        frameCount: 1,
-        frames: [{
-            attachmentId: ref.attachmentId,
-            mediaType: ref.mediaType,
-            bytes: ref.bytes,
-            width: ref.width,
-            height: ref.height,
-            at: 0,
-        }],
-    };
+    let uploadPath = path;
+    let cleanupDir;
+    try {
+        // The attachment store rejects images beyond its per-side / total-pixel
+        // caps (IMAGE_DIMENSION_TOO_LARGE / IMAGE_TOO_MANY_PIXELS), which showed
+        // up as "读不了这张图". Shrink oversized stills before uploading.
+        const normalized = await normalizeStill(path);
+        if (normalized.temp === true && normalized.dir !== undefined) {
+            uploadPath = normalized.path;
+            cleanupDir = normalized.dir;
+        }
+        const data = await readFile(uploadPath);
+        // Trust the bytes, not the file name: QQ stores PNG screenshots under a
+        // default `.jpg` name, and the attachment store rejects a declared type
+        // that does not match the payload (IMAGE_TYPE_MISMATCH).
+        const mediaType = detectImageMediaType(data);
+        if (mediaType === undefined)
+            throw new Error('qq_read_image: 不支持的图片格式（只支持 png/jpeg/webp/gif）');
+        const ref = await attachments.saveImage({ data, mediaType, name });
+        return {
+            path,
+            kind: 'image',
+            frameCount: 1,
+            frames: [{
+                attachmentId: ref.attachmentId,
+                mediaType: ref.mediaType,
+                bytes: ref.bytes,
+                width: ref.width,
+                height: ref.height,
+                at: 0,
+            }],
+        };
+    }
+    finally {
+        if (cleanupDir !== undefined)
+            await cleanupFrames(cleanupDir);
+    }
 }
 /** Output projection shared by the send tools (unconstrained JSON value). */
 function sendOutput() {

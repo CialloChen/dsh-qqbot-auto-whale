@@ -9,6 +9,8 @@
   （入站 QQ 图片常被存成 `.jpg`，但内容可能是 GIF）
 - `probe(path)`：用 ffprobe 取时长、宽高、帧数
 - `extractFrames(path, { maxFrames, maxEdge })`：按时长均匀抽 2-4 帧，缩放成长边 ≤512 的 PNG
+- `normalizeStill(path, { maxPixels, maxEdge })`：静图超过附件服务上限（单边 8192 / 64MP）
+  时先用 ffmpeg 缩到 4MP 以内，避免 `IMAGE_DIMENSION_TOO_LARGE` / `IMAGE_TOO_MANY_PIXELS`
 - `cleanupFrames(dir)`、`toolsAvailable()`
 - ffmpeg 查找顺序：`DSH_QQBOT_FFMPEG` → `<DSH_HOME>/tools/ffmpeg/bin/ffmpeg.exe` → PATH
 

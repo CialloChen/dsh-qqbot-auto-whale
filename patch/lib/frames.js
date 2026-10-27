@@ -206,6 +206,52 @@ export async function extractFrames(path, options = {}) {
         throw error;
     }
 }
+/**
+ * 超大静图先缩到附件服务能接受的尺寸。
+ *
+ * 附件服务对单边和总像素都有硬上限（默认单边 8192、64MP），超了直接抛
+ * IMAGE_DIMENSION_TOO_LARGE / IMAGE_TOO_MANY_PIXELS，表现为「读不了这张图」。
+ * 这里在交给附件服务之前，用 ffmpeg 把它压到总像素预算内，避免整条读取失败。
+ *
+ * @param path - 原图路径。
+ * @param options - maxPixels（默认 4MP）、maxEdge（默认 8192）。
+ * @returns { path, temp, dir?, width?, height? }；没超限时 temp=false 且 path 不变。
+ */
+export async function normalizeStill(path, options = {}) {
+    const maxPixels = Math.max(1, options.maxPixels ?? 4 * 1024 * 1024);
+    const maxEdge = Math.max(64, options.maxEdge ?? 8192);
+    const info = await probe(path).catch(() => ({ width: 0, height: 0, duration: 0, frames: 0 }));
+    const width = info.width;
+    const height = info.height;
+    if (!(width > 0 && height > 0))
+        return { path, temp: false };
+    if (width * height <= maxPixels && Math.max(width, height) <= maxEdge)
+        return { path, temp: false };
+    const factor = Math.min(1, Math.sqrt(maxPixels / (width * height)), maxEdge / Math.max(width, height));
+    const targetWidth = Math.max(2, Math.floor((width * factor) / 2) * 2);
+    const targetHeight = Math.max(2, Math.floor((height * factor) / 2) * 2);
+    const { ffmpeg } = findTools();
+    const dir = await mkdtemp(join(tmpdir(), 'qqstill-'));
+    const out = join(dir, 'normalized.png');
+    try {
+        await run(ffmpeg, [
+            '-v', 'error', '-y',
+            '-i', path,
+            '-frames:v', '1',
+            '-vf', 'scale=' + String(targetWidth) + ':' + String(targetHeight),
+            out,
+        ], FRAME_TIMEOUT_MS);
+        if (!existsSync(out)) {
+            await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+            return { path, temp: false };
+        }
+        return { path: out, temp: true, dir, width: targetWidth, height: targetHeight };
+    }
+    catch {
+        await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+        return { path, temp: false };
+    }
+}
 /** Delete a frame scratch dir produced by {@link extractFrames}. */
 export async function cleanupFrames(dir) {
     await rm(dir, { recursive: true, force: true }).catch(() => undefined);
